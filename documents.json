@@ -1,11 +1,82 @@
 [
   {
-    "name": "example",
-    "title": "TODO(author): the first document this industry must produce",
-    "for_each": "select gen_random_uuid() as id, 'Example' as name",
+    "name": "royalty-statement",
+    "title": "Royalty and marketing levy statement",
+    "for_each": "select s.id, s.ref || ' ' || s.name as name from sites s where s.status = 'trading' order by s.ref",
     "file": "name",
     "sections": [
-      { "title": "Details", "sql": "select 'replace me' as item, $1::text as record_id" }
+      {
+        "title": "The site",
+        "sql": "select s.ref, s.name as site, f.name as franchisee, f.entity, a.ref as agreement, a.royalty_pct || '%' as royalty_rate, a.marketing_pct || '%' as marketing_levy, s.currency from sites s left join franchisees f on f.id = s.franchisee_id left join agreements a on a.site_id = s.id and a.status = 'active' where s.id = $1"
+      },
+      {
+        "title": "The last six months",
+        "sql": "select month, coalesce(to_char(gross_sales_cents / 100.0, 'FM999,999,990.00'), 'not reported') as gross_sales, to_char(royalty_cents / 100.0, 'FM999,990.00') as royalty, to_char(marketing_cents / 100.0, 'FM999,990.00') as levy, to_char(paid_cents / 100.0, 'FM999,990.00') as paid, to_char(balance_cents / 100.0, 'FM999,990.00') as balance, to_char(due_on, 'YYYY-MM-DD') as due, state from v_royalties where site_id = $1 order by period desc limit 6"
+      },
+      {
+        "title": "Balance owing",
+        "sql": "select currency, to_char(coalesce(sum(balance_cents), 0) / 100.0, 'FM999,999,990.00') as total_balance, count(*) filter (where state like 'OVERDUE%') as months_overdue, count(*) filter (where state = 'NOT REPORTED') as reports_missing from v_royalties where site_id = $1 group by currency"
+      }
+    ]
+  },
+  {
+    "name": "visit-report",
+    "title": "Field visit report",
+    "for_each": "select a.id, a.ref || ' ' || s.name as name from audits a join sites s on s.id = a.site_id where a.status = 'completed' and a.visited_on >= current_date - 90 order by a.ref",
+    "file": "name",
+    "sections": [
+      {
+        "title": "The visit",
+        "sql": "select a.ref, s.name as site, f.name as franchisee, a.kind, to_char(a.visited_on, 'YYYY-MM-DD') as visited, st.name as by, a.score, a.summary from audits a join sites s on s.id = a.site_id left join franchisees f on f.id = s.franchisee_id left join staff st on st.id = a.staff_id where a.id = $1"
+      },
+      {
+        "title": "Findings and when each is due",
+        "sql": "select ref, severity, item, to_char(due_on, 'YYYY-MM-DD') as due, coalesce(to_char(closed_on, 'YYYY-MM-DD'), 'open') as closed, evidence from findings where audit_id = $1 order by array_position(array['critical','major','minor'], severity), ref"
+      }
+    ]
+  },
+  {
+    "name": "franchisee-file",
+    "title": "Franchisee file",
+    "for_each": "select id, ref || ' ' || name as name from franchisees where status = 'active' order by ref",
+    "file": "name",
+    "sections": [
+      {
+        "title": "The franchisee",
+        "sql": "select ref, name, entity, business_number, email, phone, insurer, insurance_policy, to_char(insurance_expires_on, 'YYYY-MM-DD') as insurance_expires from franchisees where id = $1"
+      },
+      {
+        "title": "Sites and agreements",
+        "sql": "select a.site_ref as site, a.site as name, a.ref as agreement, a.kind, a.status, to_char(a.disclosure_given_on, 'YYYY-MM-DD') as disclosure_given, to_char(a.signed_on, 'YYYY-MM-DD') as signed, a.days_considered, to_char(a.term_end, 'YYYY-MM-DD') as term_ends, to_char(a.notice_due_by, 'YYYY-MM-DD') as notice_due_by from v_agreements a where a.franchisee_id = $1 order by a.term_start desc nulls last"
+      },
+      {
+        "title": "Certificates at their sites",
+        "sql": "select s.name as site, c.holder, c.kind, to_char(c.expires_on, 'YYYY-MM-DD') as expires from certificates c join sites s on s.id = c.site_id where s.franchisee_id = $1 order by c.expires_on"
+      },
+      {
+        "title": "Breach notices",
+        "sql": "select b.ref, to_char(b.issued_on, 'YYYY-MM-DD') as issued, b.breach, b.remedy, to_char(b.remedy_by, 'YYYY-MM-DD') as remedy_by, b.status from breach_notices b join agreements a on a.id = b.agreement_id where a.franchisee_id = $1 order by b.issued_on desc"
+      }
+    ]
+  },
+  {
+    "name": "fund-statement",
+    "title": "Marketing fund statement (draft for the accountant)",
+    "for_each": "select id, 'Year to ' || to_char(fy_end, 'YYYY-MM-DD') as name from franchisor_years where fy_end < current_date order by fy_end desc",
+    "file": "name",
+    "sections": [
+      {
+        "title": "The year",
+        "sql": "select to_char(v.fy_end, 'YYYY-MM-DD') as year_to, to_char(v.levied_cents / 100.0, 'FM999,999,990.00') as levied, to_char(v.collected_cents / 100.0, 'FM999,999,990.00') as collected, to_char(v.spent_cents / 100.0, 'FM999,999,990.00') as spent, to_char(v.statement_due_by, 'YYYY-MM-DD') as statement_due_by from v_fund v join franchisor_years y on y.fy_end = v.fy_end where y.id = $1"
+      },
+      {
+        "title": "Spend by category",
+        "sql": "select s.category, count(*) as lines, to_char(sum(s.amount_cents) / 100.0, 'FM999,999,990.00') as amount from fund_spend s join franchisor_years y on fy_end_for(s.spent_on) = y.fy_end where y.id = $1 group by s.category order by sum(s.amount_cents) desc"
+      },
+      {
+        "title": "Contributions by site",
+        "sql": "select r.site_ref as site, r.site as name, r.currency, to_char(sum(r.marketing_cents) / 100.0, 'FM999,999,990.00') as levied, to_char(sum(least(r.paid_cents, r.marketing_cents)) / 100.0, 'FM999,999,990.00') as collected from v_royalties r join franchisor_years y on fy_end_for(r.period) = y.fy_end where y.id = $1 group by r.site_ref, r.site, r.currency order by r.site_ref"
+      }
     ]
   }
 ]

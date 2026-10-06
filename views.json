@@ -1,13 +1,55 @@
 [
   {
     "name": "week",
-    "title": "This week",
-    "subtitle": "Franchise for Claude Code: what needs attention, rendered by npm run view",
+    "title": "This week across the network",
+    "subtitle": "Franchise for Claude Code: what needs a decision, every site on one line, and the visits due, rendered by npm run view",
     "sections": [
       {
-        "title": "Needs attention",
-        "note": "TODO(author): point this at the industry's attention view (overdue, stuck, quiet).",
-        "sql": "select 'replace me' as item, 'TODO(author)' as why"
+        "title": "Needs a decision",
+        "note": "Worst first. A signing inside the disclosure window or a late end of term notice outranks everything.",
+        "sql": "select reason as why, label as record, site, who, days, detail from v_attention order by rank, days desc nulls last"
+      },
+      {
+        "title": "The network",
+        "note": "Sales for the last three full months against the three before. Arrears are royalties and levy past their due date.",
+        "sql": "select ref, name as site, franchisee, state, currency, to_char(sales_3m_cents / 100.0, 'FM999,999,990') as sales_3m, coalesce(sales_trend_pct || '%', '') as trend, case when arrears_cents > 0 then to_char(arrears_cents / 100.0, 'FM999,999,990') else '' end as arrears, last_score as last_visit, open_findings as findings, open_tickets as tickets, agreement_state as agreement from v_sites where status <> 'closed' order by ref"
+      },
+      {
+        "title": "Field visits due in 30 days",
+        "note": "Overdue first.",
+        "sql": "select ref, name as site, field_manager, to_char(last_visit_on, 'YYYY-MM-DD') as last_visit, last_score as score, to_char(next_visit_due_on, 'YYYY-MM-DD') as due from v_sites where status = 'trading' and next_visit_due_on <= current_date + 30 order by next_visit_due_on"
+      },
+      {
+        "title": "Agreements ending in the next year",
+        "note": "With the date the end of term notice is due (s36).",
+        "sql": "select ref, site, franchisee, state, to_char(term_end, 'YYYY-MM-DD') as term_ends, to_char(notice_due_by, 'YYYY-MM-DD') as notice_due_by, coalesce(to_char(end_of_term_notice_on, 'YYYY-MM-DD') || ' ' || end_of_term_intent, '') as notice_given from v_agreements where status = 'active' and term_end <= current_date + 365 order by term_end"
+      }
+    ]
+  },
+  {
+    "name": "royalties",
+    "title": "Royalties and the marketing fund",
+    "subtitle": "The royalty run, arrears and the fund, rendered by npm run view",
+    "sections": [
+      {
+        "title": "Last month's royalty run",
+        "note": "Every trading site for the last full month.",
+        "sql": "select site_ref as site, site as name, currency, coalesce(to_char(gross_sales_cents / 100.0, 'FM999,999,990'), 'not reported') as sales, to_char(royalty_cents / 100.0, 'FM999,990') as royalty, to_char(marketing_cents / 100.0, 'FM999,990') as levy, state from v_royalties where period = (date_trunc('month', current_date) - interval '1 month')::date order by site_ref"
+      },
+      {
+        "title": "Overdue and unreported",
+        "note": "Months past their due date with money or a sales report still missing.",
+        "sql": "select site_ref as site, site as name, franchisee, month, currency, to_char(balance_cents / 100.0, 'FM999,999,990') as balance, state from v_royalties where state like 'OVERDUE%' or state = 'NOT REPORTED' order by period"
+      },
+      {
+        "title": "Monthly network sales",
+        "note": "Reported gross sales by month and currency.",
+        "sql": "select to_char(period, 'Mon YYYY') as month, currency, count(gross_sales_cents) as sites_reported, to_char(sum(gross_sales_cents) / 100.0, 'FM999,999,990') as sales from v_royalties group by period, currency order by period desc, currency"
+      },
+      {
+        "title": "The marketing fund by year",
+        "note": "The statement is due within four months of the year end (s31).",
+        "sql": "select to_char(fy_end, 'YYYY-MM-DD') as year_to, to_char(levied_cents / 100.0, 'FM999,999,990') as levied, to_char(collected_cents / 100.0, 'FM999,999,990') as collected, to_char(spent_cents / 100.0, 'FM999,999,990') as spent, to_char(statement_due_by, 'YYYY-MM-DD') as statement_due, coalesce(to_char(fund_statement_prepared_on, 'YYYY-MM-DD'), 'not yet') as prepared from v_fund order by fy_end desc"
       }
     ]
   }
